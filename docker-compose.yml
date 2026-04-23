@@ -1,0 +1,112 @@
+services:
+  # Docker-in-Docker daemon. Testcontainers (run from the backend container during `mvn verify`)
+  # spawns Postgres/Redis against THIS daemon, so there is no dependency on the host's Docker
+  # socket layout (Docker Desktop on macOS does not expose a usable engine socket to containers).
+  # Images pulled by the dind daemon are cached in the dind_data volume.
+  dind:
+    image: docker:28-dind
+    container_name: messages-challenge-dind
+    privileged: true
+    command: ["dockerd", "-H", "tcp://0.0.0.0:2375", "--tls=false"]
+    volumes:
+      - dind_data:/var/lib/docker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "docker", "-H", "tcp://localhost:2375", "info"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: messages-challenge-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-notifications}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-notifications}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: messages-challenge-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: messages-challenge-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-notifications}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-app}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      REDISSON_ADDRESS: redis://redis:6379
+      # Testcontainers drives the dind daemon (see the `dind` service). Spawned containers
+      # live inside dind's network and expose ports on the dind host, so test clients reach
+      # them at `dind:<mapped-port>`. Ryuk (the Testcontainers reaper) cannot mount the dind
+      # socket into itself, so we disable it — dind itself is disposable.
+      DOCKER_HOST: tcp://dind:2375
+      TESTCONTAINERS_HOST_OVERRIDE: dind
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      # Debug toggles — see .env.example
+      APP_QUEUE_WORKER_ENABLED: ${APP_QUEUE_WORKER_ENABLED:-true}
+      APP_SWEEPER_ENABLED: ${APP_SWEEPER_ENABLED:-true}
+      APP_ADMIN_ENABLED: ${APP_ADMIN_ENABLED:-true}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - ./backend:/app
+      - maven_cache:/root/.m2
+    working_dir: /app
+    command: ["mvn", "spring-boot:run", "-Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dind:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: messages-challenge-frontend
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    working_dir: /app
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  maven_cache:
+  frontend_node_modules:
+  dind_data:

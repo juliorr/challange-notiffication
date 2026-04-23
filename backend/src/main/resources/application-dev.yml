@@ -1,0 +1,24 @@
+spring:
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+  devtools:
+    restart:
+      enabled: true
+  flyway:
+    # Layered on top of the base locations so the dev profile also applies the
+    # `migration-dev` folder, which seeds the "DLQ Tester" user used to demo the
+    # EmailMockSender '+fail@' failure path. Other profiles only see the base
+    # folder and never insert dev fixtures.
+    locations: classpath:db/migration,classpath:db/migration-dev
+
+logging:
+  level:
+    com.messageschallenge: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+
+app:
+  admin:
+    enabled: true

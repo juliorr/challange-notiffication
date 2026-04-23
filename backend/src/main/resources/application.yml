@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: notifications
+
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/notifications}
+    username: ${SPRING_DATASOURCE_USERNAME:app}
+    password: ${SPRING_DATASOURCE_PASSWORD:app}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: false
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+  mvc:
+    problemdetails:
+      enabled: true
+
+server:
+  port: 8080
+  error:
+    include-message: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  level:
+    root: INFO
+    com.messageschallenge: DEBUG
+    org.hibernate.SQL: WARN
+
+app:
+  queue:
+    max-attempts: 5
+    retry-delays-ms: [500, 2000, 8000, 30000]
+    jitter-pct: 0.2
+    worker-threads: 4
+    queue-name: notifications:queue
+    dlq-name: notifications:dlq
+    poll-timeout-ms: 1000
+    shutdown-timeout-ms: 5000
+    # Debug toggle: set to false to prevent the worker from consuming jobs from Redis.
+    # Useful for inspecting queue contents with redis-cli or the /admin/queue/* endpoints.
+    worker-enabled: ${APP_QUEUE_WORKER_ENABLED:true}
+  sweeper:
+    interval-ms: 30000
+    min-age-ms: 60000
+    batch-size: 500
+    # Debug toggle: set to false to stop re-enqueuing stale PENDING notifications from Postgres.
+    enabled: ${APP_SWEEPER_ENABLED:true}
+  admin:
+    # Exposes /admin/queue/* endpoints for pause/resume/status/peek. No auth — dev only.
+    enabled: ${APP_ADMIN_ENABLED:false}
+  senders:
+    sms:
+      from: "+526600000000"
+    email:
+      from: "no-reply@messages-challenge.test"
+    push:
+      app-id: "messages-challenge-mock"
+  sse:
+    timeout-ms: 1800000
+  pagination:
+    default-size: 20
+    max-size: 100
+  errors:
+    details-base-url: "https://messages-challenge/errors/"

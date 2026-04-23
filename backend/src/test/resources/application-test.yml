@@ -1,0 +1,16 @@
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+  devtools:
+    restart:
+      enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.messageschallenge: INFO
+    org.hibernate.SQL: WARN
